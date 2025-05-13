@@ -1,1 +1,4 @@
+API_KEY = 'YOUR_BINANCE_API_KEY'
+API_SECRET = 'YOUR_BINANCE_SECRET_KEY'
+SIGNAL_PAGE_URL = 'https://example.com/signal-page'
 
