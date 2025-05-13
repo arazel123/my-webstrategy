@@ -1,119 +1,132 @@
+import os
 import time
 import requests
 from bs4 import BeautifulSoup
 from binance.client import Client
 from binance.enums import *
 
-# وارد کردن کلیدهای API بایننس
-API_KEY = '6d6a40c58b03f5b8dfa954f8cc6acca6851d8c03c656ba6cd2b03e3248359d01'
-API_SECRET = '834e096d6390b9b15cd6dbcd120c74363845ae7dd9b2b95fccbaece7bcc0bcb2'
-SIGNAL_PAGE_URL = 'https://arazel123.github.io/my-webstrategy/'
-client = Client(API_KEY, API_SECRET)
+# خواندن API Key و Secret از محیط (Environment Variables)
+API_KEY = os.getenv("6d6a40c58b03f5b8dfa954f8cc6acca6851d8c03c656ba6cd2b03e3248359d01")
+API_SECRET = os.getenv("834e096d6390b9b15cd6dbcd120c74363845ae7dd9b2b95fccbaece7bcc0bcb2")
+SIGNAL_PAGE_URL = os.getenv("https://arazel123.github.io/my-webstrategy/")  # لینک سیگنال صفحه شما
 
-# لینک صفحه سیگنال شما (جایگزین کن!)
-SIGNAL_PAGE_URL = 'https://yoursite.com/signal-page'
+# اتصال به بایننس
+client = Client(API_KEY, API_SECRET)
 
 # تنظیمات
 symbol = 'XRPUSDT'
 leverage = 10
-risk_percent = 2  # 2٪ از کل سرمایه
-reward_ratio = 2  # نسبت سود به ضرر
+risk_percent = 2  # چند درصد سرمایه در خطر قرار بگیرد
+reward_ratio = 2  # نسبت حد سود به حد ضرر
 
 def get_signal():
-    response = requests.get(SIGNAL_PAGE_URL)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    """
+    استخراج سیگنال از صفحه وب
+    """
+    try:
+        res = requests.get(SIGNAL_PAGE_URL, timeout=10)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.text, 'html.parser')
+        text = soup.get_text().lower()
 
-    # این خط بستگی به ساختار HTML صفحه دارد، فقط مثاله!
-    text = soup.get_text()
-
-    if 'XRPUSDT خرید' in text:
-        return 'BUY'
-    elif 'XRPUSDT فروش' in text:
-        return 'SELL'
-    else:
+        if 'xrpusdt خرید' in text or 'xrpusdt buy' in text:
+            return 'BUY'
+        elif 'xrpusdt فروش' in text or 'xrpusdt sell' in text:
+            return 'SELL'
+        else:
+            return None
+    except Exception as e:
+        print(f"❌ خطا در دریافت سیگنال: {e}")
         return None
 
-def set_leverage(symbol, leverage):
-    client.futures_change_leverage(symbol=symbol, leverage=leverage)
+def set_leverage():
+    try:
+        client.futures_change_leverage(symbol=symbol, leverage=leverage)
+    except Exception as e:
+        print(f"⚠️ خطا در تنظیم لوریج: {e}")
 
 def get_balance():
     balances = client.futures_account_balance()
-    usdt = next(b for b in balances if b['asset'] == 'USDT')
-    return float(usdt['balance'])
+    usdt = next((b for b in balances if b['asset'] == 'USDT'), None)
+    return float(usdt['balance']) if usdt else 0.0
 
-def get_price(symbol):
+def get_price():
     ticker = client.get_symbol_ticker(symbol=symbol)
     return float(ticker['price'])
 
-def calculate_qty(balance, price, risk_pct):
-    risk_amount = balance * (risk_pct / 100)
-    price_move = price * (risk_pct / 100)
-    qty = risk_amount / price_move
-    return round(qty, 2)
+def calculate_qty(balance, price):
+    risk_dollar = balance * (risk_percent / 100)
+    sl_move = price * (risk_percent / 100)
+    quantity = risk_dollar / sl_move
+    return round(quantity, 1)
 
 def open_trade(signal_type):
-    set_leverage(symbol, leverage)
+    set_leverage()
     balance = get_balance()
-    price = get_price(symbol)
-    qty = calculate_qty(balance, price, risk_percent)
+    price = get_price()
+    quantity = calculate_qty(balance, price)
 
-    sl_pct = risk_percent / 100
-    tp_pct = sl_pct * reward_ratio
+    sl_percent = risk_percent / 100
+    tp_percent = sl_percent * reward_ratio
 
     if signal_type == 'BUY':
-        sl_price = round(price * (1 - sl_pct), 4)
-        tp_price = round(price * (1 + tp_pct), 4)
-        side = SIDE_BUY
+        stop_loss = round(price * (1 - sl_percent), 4)
+        take_profit = round(price * (1 + tp_percent), 4)
+        open_side = SIDE_BUY
         close_side = SIDE_SELL
     else:
-        sl_price = round(price * (1 + sl_pct), 4)
-        tp_price = round(price * (1 - tp_pct), 4)
-        side = SIDE_SELL
+        stop_loss = round(price * (1 + sl_percent), 4)
+        take_profit = round(price * (1 - tp_percent), 4)
+        open_side = SIDE_SELL
         close_side = SIDE_BUY
 
-    print(f"📌 باز کردن پوزیشن {signal_type}: قیمت ورود={price}, SL={sl_price}, TP={tp_price}, حجم={qty}")
+    print(f"📈 ورود به معامله {signal_type} - قیمت: {price}, حجم: {quantity}, SL: {stop_loss}, TP: {take_profit}")
 
-    client.futures_create_order(
-        symbol=symbol,
-        side=side,
-        type=ORDER_TYPE_MARKET,
-        quantity=qty
-    )
+    try:
+        # سفارش بازار
+        client.futures_create_order(
+            symbol=symbol,
+            side=open_side,
+            type=ORDER_TYPE_MARKET,
+            quantity=quantity
+        )
 
-    # حد ضرر
-    client.futures_create_order(
-        symbol=symbol,
-        side=close_side,
-        type=ORDER_TYPE_STOP_MARKET,
-        stopPrice=sl_price,
-        closePosition=True
-    )
+        # حد ضرر
+        client.futures_create_order(
+            symbol=symbol,
+            side=close_side,
+            type=ORDER_TYPE_STOP_MARKET,
+            stopPrice=stop_loss,
+            closePosition=True
+        )
 
-    # حد سود
-    client.futures_create_order(
-        symbol=symbol,
-        side=close_side,
-        type=ORDER_TYPE_LIMIT,
-        price=tp_price,
-        quantity=qty,
-        timeInForce=TIME_IN_FORCE_GTC
-    )
+        # حد سود
+        client.futures_create_order(
+            symbol=symbol,
+            side=close_side,
+            type=ORDER_TYPE_LIMIT,
+            price=take_profit,
+            quantity=quantity,
+            timeInForce=TIME_IN_FORCE_GTC
+        )
+    except Exception as e:
+        print(f"❌ خطا در ارسال سفارش: {e}")
 
-if __name__ == '__main__':
+def main():
     last_signal = None
     while True:
-        try:
-            signal = get_signal()
-            if signal and signal != last_signal:
-                open_trade(signal)
-                last_signal = signal
-            else:
-                print("⏳ سیگنال جدیدی نیست...")
-            time.sleep(30)
-        except Exception as e:
-            print(f"⚠️ خطا: {e}")
-            time.sleep(60)
+        signal = get_signal()
+        if signal and signal != last_signal:
+            print(f"✅ سیگنال جدید دریافت شد: {signal}")
+            open_trade(signal)
+            last_signal = signal
+        else:
+            print("🔍 سیگنال جدیدی نیست...")
 
+        time.sleep(30)  # هر ۳۰ ثانیه بررسی
+
+if __name__ == "__main__":
+    main()
 
 
 
