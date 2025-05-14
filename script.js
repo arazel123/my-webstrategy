@@ -99,9 +99,9 @@ function analyzeStrategy() {
   const lastCandle = lastTrades[lastTrades.length - 1];
   const isGreenCandle = parseFloat(lastCandle.price) > parseFloat(lastTrades[lastTrades.length - 2].price);
 
-  if (isGreenCandle && lastVolume > avgVolume && buyCount >= 30 && !buySignalIssued) {
+  if (isGreenCandle && lastVolume > avgVolume && buyCount >= 10 && !buySignalIssued) {
     issueBuySignal();
-  } else if (!isGreenCandle && lastVolume > avgVolume && sellCount >= 30 && !sellSignalIssued) {
+  } else if (!isGreenCandle && lastVolume > avgVolume && sellCount >= 10 && !sellSignalIssued) {
     issueSellSignal();
   }
 }
